@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meg & Adrian — Vinyl Collection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Archivo:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <h1 class="site-title">Meg &amp; Adrian</h1>
+      <div class="header-meta">
+        <span class="collection-label">VINYL COLLECTION</span>
+        <div class="sync-info">
+          <span class="sync-text" id="sync-text">DISCOGS COLLECTION · SYNCING…</span>
+          <button class="show-details-btn" id="show-details-btn">SHOW DETAILS</button>
+        </div>
+      </div>
+      <div class="album-count" id="album-count" aria-live="polite">
+        <span class="count-number" id="count-number">—</span>
+        <span class="count-label">albums</span>
+      </div>
+    </div>
+
+    <div class="details-panel" id="details-panel" hidden>
+      <p>Connected to Discogs user: <strong id="discogs-username-display"></strong></p>
+      <p>Change the username in the URL: <code>?username=YOUR_USERNAME</code></p>
+    </div>
+  </header>
+
+  <nav class="sort-nav" id="sort-nav">
+    <div class="sort-modes">
+      <button class="sort-btn active" data-mode="az">A–Z</button>
+      <button class="sort-btn" data-mode="year">YEAR</button>
+      <button class="sort-btn" data-mode="price">PRICE</button>
+      <button class="sort-btn" data-mode="new">NEW</button>
+      <button class="sort-btn" data-mode="search">SEARCH</button>
+    </div>
+    <div class="sort-filters" id="sort-filters">
+      <!-- filled by JS -->
+    </div>
+    <div class="search-container" id="search-container" hidden>
+      <input type="text" class="search-input" id="search-input" placeholder="Search…" autocomplete="off" />
+    </div>
+    <button class="stats-btn" id="stats-btn">STATS</button>
+  </nav>
+
+  <main class="collection-grid-wrapper" id="main-content">
+    <div class="loading-state" id="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Loading collection…</p>
+    </div>
+    <div class="error-state" id="error-state" hidden>
+      <p id="error-msg"></p>
+      <p class="error-hint">Enter a Discogs username in the URL: <code>?username=YOUR_USERNAME</code></p>
+    </div>
+    <div id="collection-output"></div>
+  </main>
+
+  <!-- Stats overlay -->
+  <div class="overlay" id="stats-overlay" hidden>
+    <div class="overlay-inner">
+      <button class="close-btn" id="close-stats">✕</button>
+      <div class="stats-grid" id="stats-content"></div>
+    </div>
+  </div>
+
+  <!-- Album modal -->
+  <div class="overlay" id="album-modal" hidden>
+    <div class="modal-inner">
+      <button class="close-btn" id="close-modal">✕</button>
+      <div class="modal-body">
+        <div class="modal-cover" id="modal-cover"></div>
+        <div class="modal-info" id="modal-info"></div>
+      </div>
+      <div class="modal-nav">
+        <button class="modal-prev" id="modal-prev">‹</button>
+        <button class="modal-next" id="modal-next">›</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Random button -->
+  <button class="random-btn" id="random-btn" hidden>RANDOM</button>
+
+  <footer class="site-footer" id="site-footer" hidden>
+    <a href="#" id="discogs-link" target="_blank" rel="noopener">Generated from discogs.com</a>
+    <span id="last-sync-footer"></span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
