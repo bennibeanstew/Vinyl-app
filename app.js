@@ -25,14 +25,12 @@ const els = {
   sortFilters: $('sort-filters'),
   searchContainer: $('search-container'),
   searchInput: $('search-input'),
-  statsBtn: $('stats-btn'),
+  statsSection: $('stats-section'),
+  statsContent: $('stats-content'),
   loadingState: $('loading-state'),
   errorState: $('error-state'),
   errorMsg: $('error-msg'),
   collectionOutput: $('collection-output'),
-  statsOverlay: $('stats-overlay'),
-  statsContent: $('stats-content'),
-  closeStats: $('close-stats'),
   albumModal: $('album-modal'),
   modalCover: $('modal-cover'),
   modalInfo: $('modal-info'),
@@ -62,8 +60,6 @@ function init() {
     els.showDetailsBtn.textContent = els.detailsPanel.hidden ? 'SHOW DETAILS' : 'HIDE DETAILS';
   });
 
-  els.statsBtn.addEventListener('click', openStats);
-  els.closeStats.addEventListener('click', () => { els.statsOverlay.hidden = true; });
   els.closeModal.addEventListener('click', closeModal);
   els.modalPrev.addEventListener('click', () => navigateModal(-1));
   els.modalNext.addEventListener('click', () => navigateModal(1));
@@ -77,12 +73,10 @@ function init() {
       if (e.key === 'ArrowRight') navigateModal(1);
       if (e.key === 'Escape') closeModal();
     }
-    if (!els.statsOverlay.hidden && e.key === 'Escape') els.statsOverlay.hidden = true;
   });
 
   // Click outside modal to close
   els.albumModal.addEventListener('click', e => { if (e.target === els.albumModal) closeModal(); });
-  els.statsOverlay.addEventListener('click', e => { if (e.target === els.statsOverlay) els.statsOverlay.hidden = true; });
 
   if (!state.username) {
     showPrompt();
@@ -203,6 +197,7 @@ function onCollectionLoaded() {
   els.lastSyncFooter.textContent = `Last sync: ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
 
   setMode('az');
+  renderInlineStats();
 }
 
 // ── Sorting & Filtering ────────────────────────────────
@@ -465,39 +460,26 @@ function navigateModal(dir) {
   if (next >= 0 && next < state.visibleAlbums.length) openModal(next);
 }
 
-// ── Stats ─────────────────────────────────────────────
-function openStats() {
+// ── Stats (inline) ────────────────────────────────────
+function renderInlineStats() {
   const albums = state.albums;
   if (!albums.length) return;
 
-  // Top artists
   const artistCount = {};
   albums.forEach(a => { artistCount[a.artist] = (artistCount[a.artist] || 0) + 1; });
-  const topArtists = Object.entries(artistCount).sort((a, b) => b[1] - a[1]).slice(0, 11);
+  const topArtists = Object.entries(artistCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const maxA = topArtists[0]?.[1] || 1;
 
-  // Top genres
   const genreCount = {};
   albums.forEach(a => (a.genres || []).forEach(g => { genreCount[g] = (genreCount[g] || 0) + 1; }));
-  const topGenres = Object.entries(genreCount).sort((a, b) => b[1] - a[1]).slice(0, 11);
+  const topGenres = Object.entries(genreCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const maxG = topGenres[0]?.[1] || 1;
 
-  // Popular years
   const yearCount = {};
   albums.forEach(a => { if (a.year) yearCount[a.year] = (yearCount[a.year] || 0) + 1; });
-  const topYears = Object.entries(yearCount).sort((a, b) => b[1] - a[1]).slice(0, 11);
+  const topYears = Object.entries(yearCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const maxY = topYears[0]?.[1] || 1;
 
-  // Released today
-  const today = new Date();
-  const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const releasedToday = albums.filter(a => {
-    if (!a.year) return false;
-    // We don't have exact release dates from this API endpoint, use year albums added in same month/day as heuristic
-    return false; // Would need additional API call per release to get exact dates
-  });
-
-  // Coming up (albums added recently)
   const comingUp = [...albums]
     .filter(a => a.dateAdded)
     .sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded))
@@ -523,7 +505,7 @@ function openStats() {
       <h3>Most Popular Years</h3>
       ${topYears.map(([label, count]) => statsRow(label, count, maxY)).join('')}
     </div>
-    <div class="stats-releases stats-section">
+    <div class="stats-section">
       <h3>Recently Added</h3>
       <ul class="coming-up-list">
         ${comingUp.map(a => `
@@ -536,13 +518,7 @@ function openStats() {
       </ul>
     </div>`;
 
-  els.statsOverlay.hidden = false;
-  document.body.style.overflow = 'hidden';
-
-  els.closeStats.addEventListener('click', () => {
-    els.statsOverlay.hidden = true;
-    document.body.style.overflow = '';
-  }, { once: true });
+  els.statsSection.hidden = false;
 }
 
 // ── Random ────────────────────────────────────────────

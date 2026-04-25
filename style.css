@@ -214,21 +214,7 @@ body {
 .search-input::placeholder { color: var(--text-dim); }
 .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(155,114,207,0.15); }
 
-.stats-btn {
-  margin-left: auto;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  font-family: var(--font-body);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  padding: 7px 16px;
-  cursor: pointer;
-  transition: all var(--transition);
-  white-space: nowrap;
-}
-.stats-btn:hover { color: var(--accent); border-color: var(--accent); }
+
 
 /* ── Collection Grid ──────────────────────────────── */
 .collection-grid-wrapper {
@@ -353,44 +339,19 @@ body {
 .error-hint { font-size: 11px; }
 .error-hint code { background: #222; padding: 2px 8px; border-radius: 3px; color: var(--text); }
 
-/* ── Stats Overlay ───────────────────────────────── */
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.88);
-  z-index: 500;
-  overflow-y: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 20px;
-  backdrop-filter: blur(4px);
-}
-
-.overlay-inner {
+/* ── Stats Inline Section ────────────────────────── */
+.stats-section-inline {
+  border-top: 1px solid var(--border);
+  padding: clamp(28px, 4vw, 56px) clamp(20px, 4vw, 60px);
   background: var(--bg);
-  border: 1px solid var(--border);
-  max-width: 960px;
-  width: 100%;
-  padding: clamp(24px, 4vw, 48px);
-  position: relative;
-  border-radius: 4px;
 }
 
-.close-btn {
-  position: absolute;
-  top: 16px; right: 16px;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  font-size: 14px;
-  width: 36px; height: 36px;
-  cursor: pointer;
-  transition: all var(--transition);
-  display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius);
+.stats-section-inline .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 40px;
+  max-width: 1200px;
 }
-.close-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .stats-grid {
   display: grid;
@@ -501,6 +462,35 @@ body {
 .coming-up-date { color: var(--accent); min-width: 50px; font-size: 11px; }
 .coming-up-title { flex: 1; color: var(--text); }
 .coming-up-year { color: var(--text-dim); font-size: 11px; }
+
+/* ── Album Modal Overlay ─────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.88);
+  z-index: 500;
+  overflow-y: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+  backdrop-filter: blur(4px);
+}
+
+.close-btn {
+  position: absolute;
+  top: 16px; right: 16px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 14px;
+  width: 36px; height: 36px;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius);
+}
+.close-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ── Album Modal ─────────────────────────────────── */
 .modal-inner {
