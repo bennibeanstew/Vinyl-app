@@ -11,6 +11,7 @@ const state = {
   currentFilter: null,
   currentIndex: 0,
   visibleAlbums: [],
+  pricesFetched: false,
 };
 
 // ── DOM refs ──────────────────────────────────────────
@@ -50,7 +51,6 @@ function init() {
   const params = new URLSearchParams(location.search);
   state.username = params.get('username') || '';
 
-  // Sort button listeners
   document.querySelectorAll('.sort-btn').forEach(btn => {
     btn.addEventListener('click', () => setMode(btn.dataset.mode));
   });
@@ -64,7 +64,6 @@ function init() {
   els.modalPrev.addEventListener('click', () => navigateModal(-1));
   els.modalNext.addEventListener('click', () => navigateModal(1));
   els.randomBtn.addEventListener('click', openRandom);
-
   els.searchInput.addEventListener('input', () => renderSearch(els.searchInput.value));
 
   document.addEventListener('keydown', e => {
@@ -75,14 +74,9 @@ function init() {
     }
   });
 
-  // Click outside modal to close
   els.albumModal.addEventListener('click', e => { if (e.target === els.albumModal) closeModal(); });
 
-  if (!state.username) {
-    showPrompt();
-    return;
-  }
-
+  if (!state.username) { showPrompt(); return; }
   loadCollection();
 }
 
@@ -90,7 +84,6 @@ function init() {
 function showPrompt() {
   els.loadingState.hidden = true;
   els.albumCount.hidden = true;
-  els.statsBtn.style.display = 'none';
   els.randomBtn.hidden = true;
   els.siteFooter.hidden = false;
   document.querySelector('.sort-modes').style.display = 'none';
@@ -162,25 +155,75 @@ function normalizeAlbum(release) {
   const artists = (bi.artists || []).map(a => a.name.replace(/ \(\d+\)$/, '')).join(', ');
   const genres = [...(bi.genres || []), ...(bi.styles || [])];
   const thumb = bi.cover_image || bi.thumb || '';
-  const year = bi.year || null;
-  const price = release.price || null;
 
   return {
     id: release.id,
     instanceId: release.instance_id,
     title: bi.title || 'Unknown Title',
     artist: artists || 'Unknown Artist',
-    year,
+    year: bi.year || null,
     genres,
     thumb,
     format: (bi.formats || []).map(f => f.name).join(', ') || 'Vinyl',
     label: (bi.labels || []).map(l => l.name).join(', ') || '',
-    catno: (bi.labels || []).map(l => l.catno).join(', ') || '',
     dateAdded: release.date_added || '',
-    median: release.price || null,
-    rating: release.rating || 0,
+    median: null,        // filled in by fetchPrices()
+    priceLoading: true,
     releaseId: bi.id,
   };
+}
+
+// ── Price fetching ─────────────────────────────────────
+// Fetches marketplace stats per release from Discogs.
+// Unauthenticated limit ~25 req/s — we batch 8 at a time with 350ms delay.
+
+async function fetchPrices() {
+  if (state.pricesFetched) return;
+  state.pricesFetched = true;
+
+  // Small inline indicator
+  const indicator = document.createElement('span');
+  indicator.id = 'price-loading-indicator';
+  indicator.style.cssText = 'font-size:10px;color:var(--text-dim);letter-spacing:0.06em;padding-left:12px;white-space:nowrap;';
+  indicator.textContent = 'Loading prices…';
+  els.sortNav.appendChild(indicator);
+
+  const BATCH = 8;
+  const DELAY = 350;
+
+  for (let i = 0; i < state.albums.length; i += BATCH) {
+    const batch = state.albums.slice(i, i + BATCH);
+    await Promise.all(batch.map(async album => {
+      try {
+        const res = await fetch(
+          `${DISCOGS_API}/marketplace/stats/${album.releaseId}?curr_abbr=USD`,
+          { headers: HEADERS }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          // Prefer median price, fall back to lowest
+          album.median = data.median_price?.value ?? data.lowest_price?.value ?? null;
+        }
+      } catch (_) { /* skip */ }
+      album.priceLoading = false;
+    }));
+
+    const done = Math.min(i + BATCH, state.albums.length);
+    indicator.textContent = `Loading prices… ${done}/${state.albums.length}`;
+
+    if (i + BATCH < state.albums.length) {
+      await new Promise(r => setTimeout(r, DELAY));
+    }
+  }
+
+  indicator.textContent = '✓ Prices loaded';
+  setTimeout(() => indicator.remove(), 2000);
+
+  // Re-render if still on price tab
+  if (state.currentMode === 'price') {
+    renderPrice();
+    buildPriceFilters();
+  }
 }
 
 function onCollectionLoaded() {
@@ -190,14 +233,14 @@ function onCollectionLoaded() {
   els.albumCount.hidden = false;
 
   const now = new Date();
-  const syncStr = `DISCOGS COLLECTION · SYNCED ${now.toLocaleString('en-US', {
+  els.syncText.textContent = `DISCOGS COLLECTION · SYNCED ${now.toLocaleString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
   }).toUpperCase()}`;
-  els.syncText.textContent = syncStr;
   els.lastSyncFooter.textContent = `Last sync: ${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
 
   setMode('az');
   renderInlineStats();
+  fetchPrices(); // background
 }
 
 // ── Sorting & Filtering ────────────────────────────────
@@ -206,7 +249,6 @@ function setMode(mode) {
   state.currentFilter = null;
 
   document.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-
   els.searchContainer.hidden = mode !== 'search';
   els.sortFilters.innerHTML = '';
 
@@ -218,10 +260,10 @@ function setMode(mode) {
   }
 
   switch (mode) {
-    case 'az': renderAZ(); buildAZFilters(); break;
-    case 'year': renderYear(); buildYearFilters(); break;
+    case 'az':    renderAZ();    buildAZFilters();    break;
+    case 'year':  renderYear();  buildYearFilters();  break;
     case 'price': renderPrice(); buildPriceFilters(); break;
-    case 'new': renderNew(); buildNewFilters(); break;
+    case 'new':   renderNew();   buildNewFilters();   break;
   }
 }
 
@@ -230,8 +272,8 @@ function buildAZFilters() {
     const c = a.artist.replace(/^The /i, '')[0]?.toUpperCase() || '#';
     return /[A-Z]/.test(c) ? c : '#';
   }));
-  const sorted = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')].filter(c => chars.has(c));
-  els.sortFilters.innerHTML = sorted.map(c =>
+  const all = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')].filter(c => chars.has(c));
+  els.sortFilters.innerHTML = all.map(c =>
     `<button class="filter-btn" data-filter="${c}">${c}</button>`
   ).join('');
   attachFilterListeners();
@@ -241,26 +283,26 @@ function buildYearFilters() {
   const decades = new Set(state.albums.filter(a => a.year).map(a => Math.floor(a.year / 10) * 10));
   const sorted = [...decades].sort((a, b) => a - b);
   els.sortFilters.innerHTML = sorted.map(d =>
-    `<button class="filter-btn" data-filter="${d}">${d}s</button>`
+    `<button class="filter-btn" data-filter="${d}s">${d}s</button>`
   ).join('');
   attachFilterListeners();
 }
 
 function buildPriceFilters() {
-  const buckets = ['$100+', '$50–99', '$25–49', '$10–24', 'Under $10', '—'];
-  els.sortFilters.innerHTML = buckets.map(b =>
-    `<button class="filter-btn" data-filter="${b}">${b}</button>`
-  ).join('');
+  const order = ['$100+', '$50–99', '$25–49', '$10–24', 'Under $10', '—'];
+  const existing = new Set(state.albums.map(getPriceBucket));
+  els.sortFilters.innerHTML = order
+    .filter(b => existing.has(b))
+    .map(b => `<button class="filter-btn" data-filter="${b}">${b}</button>`)
+    .join('');
   attachFilterListeners();
 }
 
 function buildNewFilters() {
-  const years = new Set(state.albums.map(a => {
-    if (!a.dateAdded) return null;
-    return new Date(a.dateAdded).getFullYear();
-  }).filter(Boolean));
-  const sorted = [...years].sort((a, b) => b - a).slice(0, 5);
-  els.sortFilters.innerHTML = sorted.map(y =>
+  const years = [...new Set(
+    state.albums.map(a => a.dateAdded ? new Date(a.dateAdded).getFullYear() : null).filter(Boolean)
+  )].sort((a, b) => b - a).slice(0, 5);
+  els.sortFilters.innerHTML = years.map(y =>
     `<button class="filter-btn" data-filter="${y}">${y}</button>`
   ).join('');
   attachFilterListeners();
@@ -272,14 +314,14 @@ function attachFilterListeners() {
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       state.currentFilter = btn.dataset.filter;
-      scrollToFilter(btn.dataset.filter);
+      const target = document.querySelector(`[data-section="${CSS.escape(btn.dataset.filter)}"]`);
+      if (target) {
+        const navH = els.sortNav.offsetHeight;
+        const top = target.getBoundingClientRect().top + window.scrollY - navH - 16;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
     });
   });
-}
-
-function scrollToFilter(filter) {
-  const section = document.querySelector(`[data-section="${CSS.escape(filter)}"]`);
-  if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ── Render modes ──────────────────────────────────────
@@ -290,50 +332,55 @@ function renderAZ() {
     const key = /[A-Z]/.test(raw) ? raw : '#';
     (groups[key] = groups[key] || []).push(a);
   });
-  const keys = Object.keys(groups).sort((a, b) => a === '#' ? -1 : b === '#' ? 1 : a.localeCompare(b));
+  const keys = Object.keys(groups).sort((a, b) =>
+    a === '#' ? -1 : b === '#' ? 1 : a.localeCompare(b)
+  );
+  keys.forEach(k => groups[k].sort((a, b) =>
+    a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title)
+  ));
   state.visibleAlbums = keys.flatMap(k => groups[k]);
   renderGroups(keys.map(k => ({ label: k, albums: groups[k] })));
 }
 
 function renderYear() {
-  const groups = {};
-  state.albums.forEach(a => {
-    const y = a.year || '?';
-    (groups[y] = groups[y] || []).push(a);
-  });
-  const keys = Object.keys(groups).filter(k => k !== '?').sort((a, b) => Number(a) - Number(b));
-  if (groups['?']) keys.push('?');
-  state.visibleAlbums = keys.flatMap(k => groups[k]);
-
-  // Group by decade for headers
   const decades = {};
-  keys.forEach(y => {
-    if (y === '?') { (decades['Unknown'] = decades['Unknown'] || []).push(...groups[y]); return; }
-    const d = Math.floor(Number(y) / 10) * 10 + 's';
-    (decades[d] = decades[d] || []).push(...groups[y]);
+  state.albums.forEach(a => {
+    const y = a.year;
+    if (!y) { (decades['Unknown'] = decades['Unknown'] || []).push(a); return; }
+    const d = `${Math.floor(y / 10) * 10}s`;
+    (decades[d] = decades[d] || []).push(a);
   });
-  const dKeys = Object.keys(decades).filter(k => k !== 'Unknown').sort();
-  if (decades['Unknown']) dKeys.push('Unknown');
-  renderGroups(dKeys.map(k => ({ label: k, albums: decades[k] })));
+  const keys = Object.keys(decades).filter(k => k !== 'Unknown').sort();
+  if (decades['Unknown']) keys.push('Unknown');
+  keys.forEach(k => decades[k].sort((a, b) =>
+    (a.year || 9999) - (b.year || 9999) || a.artist.localeCompare(b.artist)
+  ));
+  state.visibleAlbums = keys.flatMap(k => decades[k]);
+  renderGroups(keys.map(k => ({ label: k, albums: decades[k] })));
+}
+
+function getPriceBucket(a) {
+  const p = a.median;
+  if (p === null || p === undefined) return '—';
+  if (p >= 100) return '$100+';
+  if (p >= 50)  return '$50–99';
+  if (p >= 25)  return '$25–49';
+  if (p >= 10)  return '$10–24';
+  return 'Under $10';
 }
 
 function renderPrice() {
-  const getBucket = a => {
-    const p = a.median;
-    if (!p) return '—';
-    if (p >= 100) return '$100+';
-    if (p >= 50) return '$50–99';
-    if (p >= 25) return '$25–49';
-    if (p >= 10) return '$10–24';
-    return 'Under $10';
-  };
   const order = ['$100+', '$50–99', '$25–49', '$10–24', 'Under $10', '—'];
   const groups = {};
   state.albums.forEach(a => {
-    const b = getBucket(a);
+    const b = getPriceBucket(a);
     (groups[b] = groups[b] || []).push(a);
   });
   const keys = order.filter(k => groups[k]);
+  // Sort within each priced bucket: highest price first
+  keys.filter(k => k !== '—').forEach(k =>
+    groups[k].sort((a, b) => (b.median ?? 0) - (a.median ?? 0))
+  );
   state.visibleAlbums = keys.flatMap(k => groups[k]);
   renderGroups(keys.map(k => ({ label: k, albums: groups[k] })));
 }
@@ -346,7 +393,6 @@ function renderNew() {
     (groups[y] = groups[y] || []).push(a);
   });
   const keys = Object.keys(groups).sort((a, b) => Number(b) - Number(a));
-  // Sort within each group by dateAdded descending
   keys.forEach(k => groups[k].sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded)));
   state.visibleAlbums = keys.flatMap(k => groups[k]);
   renderGroups(keys.map(k => ({ label: k, albums: groups[k] })));
@@ -354,18 +400,13 @@ function renderNew() {
 
 function renderSearch(query) {
   const q = query.toLowerCase().trim();
-  const filtered = q
-    ? state.albums.filter(a =>
-        a.title.toLowerCase().includes(q) ||
-        a.artist.toLowerCase().includes(q) ||
-        (a.genres || []).some(g => g.toLowerCase().includes(q))
-      )
-    : state.albums;
+  if (!q) { els.collectionOutput.innerHTML = ''; state.visibleAlbums = []; return; }
+  const filtered = state.albums.filter(a =>
+    a.title.toLowerCase().includes(q) ||
+    a.artist.toLowerCase().includes(q) ||
+    (a.genres || []).some(g => g.toLowerCase().includes(q))
+  );
   state.visibleAlbums = filtered;
-  if (!q) {
-    els.collectionOutput.innerHTML = '';
-    return;
-  }
   renderGroups([{ label: `${filtered.length} result${filtered.length !== 1 ? 's' : ''} for "${query}"`, albums: filtered }]);
 }
 
@@ -379,16 +420,11 @@ function renderGroups(groups) {
     </div>
   `).join('');
 
-  // Attach click listeners
   document.querySelectorAll('.album-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const idx = parseInt(card.dataset.idx, 10);
-      openModal(idx);
-    });
+    card.addEventListener('click', () => openModal(parseInt(card.dataset.idx, 10)));
   });
 
-  // Lazy load images
-  const imgs = document.querySelectorAll('img[data-src]');
+  // Lazy-load images
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
@@ -399,17 +435,17 @@ function renderGroups(groups) {
       }
     });
   }, { rootMargin: '200px' });
-  imgs.forEach(img => observer.observe(img));
+  document.querySelectorAll('img[data-src]').forEach(img => observer.observe(img));
 }
 
 function albumCard(album, idx) {
   const hasImg = album.thumb && album.thumb.trim();
   return `
-    <div class="album-card" data-idx="${idx}" tabindex="0" role="button" aria-label="${escAttr(album.title)} by ${escAttr(album.artist)}">
+    <div class="album-card" data-idx="${idx}" tabindex="0" role="button"
+      aria-label="${escAttr(album.title)} by ${escAttr(album.artist)}">
       ${hasImg
         ? `<img data-src="${escAttr(album.thumb)}" alt="${escAttr(album.title)}" loading="lazy" />`
-        : `<div class="album-placeholder">♪</div>`
-      }
+        : `<div class="album-placeholder">♪</div>`}
       <div class="album-card-hover">
         <div class="album-card-title">${escHtml(album.title)}</div>
         <div class="album-card-artist">${escHtml(album.artist)}</div>
@@ -431,8 +467,16 @@ function openModal(idx) {
   const dateAdded = album.dateAdded
     ? new Date(album.dateAdded).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : '—';
-
   const genres = album.genres?.slice(0, 3).join(', ') || '—';
+
+  let priceDisplay;
+  if (album.priceLoading) {
+    priceDisplay = `<span style="color:var(--text-dim)">Loading…</span>`;
+  } else if (album.median !== null && album.median !== undefined) {
+    priceDisplay = `$${album.median.toFixed(2)}`;
+  } else {
+    priceDisplay = `<span style="color:var(--text-dim)">—</span>`;
+  }
 
   els.modalInfo.innerHTML = `
     <h2 class="modal-album-title">${escHtml(album.title)}</h2>
@@ -442,7 +486,7 @@ function openModal(idx) {
       ${genres !== '—' ? `<div class="modal-meta-row"><span class="meta-key">Genre</span><span class="meta-val">${genres}</span></div>` : ''}
       ${album.format ? `<div class="modal-meta-row"><span class="meta-key">Format</span><span class="meta-val">${escHtml(album.format)}</span></div>` : ''}
       ${album.label ? `<div class="modal-meta-row"><span class="meta-key">Label</span><span class="meta-val">${escHtml(album.label)}</span></div>` : ''}
-      ${album.median ? `<div class="modal-meta-row"><span class="meta-key">Median Price</span><span class="meta-val">$${album.median}</span></div>` : ''}
+      <div class="modal-meta-row"><span class="meta-key">Median Price</span><span class="meta-val">${priceDisplay}</span></div>
       <div class="modal-meta-row"><span class="meta-key">Date Added</span><span class="meta-val">${dateAdded}</span></div>
     </div>`;
 
@@ -460,34 +504,35 @@ function navigateModal(dir) {
   if (next >= 0 && next < state.visibleAlbums.length) openModal(next);
 }
 
-// ── Stats (inline) ────────────────────────────────────
+// ── Stats (inline at bottom) ──────────────────────────
 function renderInlineStats() {
   const albums = state.albums;
   if (!albums.length) return;
 
-  const artistCount = {};
-  albums.forEach(a => { artistCount[a.artist] = (artistCount[a.artist] || 0) + 1; });
-  const topArtists = Object.entries(artistCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const count = (arr, key) => {
+    const map = {};
+    arr.forEach(a => {
+      const vals = Array.isArray(a[key]) ? a[key] : [a[key]];
+      vals.filter(Boolean).forEach(v => { map[v] = (map[v] || 0) + 1; });
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  };
+
+  const topArtists = count(albums, 'artist');
+  const topGenres  = count(albums, 'genres');
+  const topYears   = count(albums.filter(a => a.year), 'year');
   const maxA = topArtists[0]?.[1] || 1;
-
-  const genreCount = {};
-  albums.forEach(a => (a.genres || []).forEach(g => { genreCount[g] = (genreCount[g] || 0) + 1; }));
-  const topGenres = Object.entries(genreCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const maxG = topGenres[0]?.[1] || 1;
-
-  const yearCount = {};
-  albums.forEach(a => { if (a.year) yearCount[a.year] = (yearCount[a.year] || 0) + 1; });
-  const topYears = Object.entries(yearCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const maxY = topYears[0]?.[1] || 1;
 
-  const comingUp = [...albums]
+  const recentlyAdded = [...albums]
     .filter(a => a.dateAdded)
     .sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded))
     .slice(0, 5);
 
-  const statsRow = (label, count, max) => `
+  const row = (label, count, max) => `
     <div class="stats-row">
-      <span class="stats-label">${escHtml(label)}</span>
+      <span class="stats-label">${escHtml(String(label))}</span>
       <div class="stats-bar-wrap"><div class="stats-bar" style="width:${Math.round(count / max * 100)}%"></div></div>
       <span class="stats-count">${count}</span>
     </div>`;
@@ -495,26 +540,25 @@ function renderInlineStats() {
   els.statsContent.innerHTML = `
     <div class="stats-section">
       <h3>Top Artists</h3>
-      ${topArtists.map(([label, count]) => statsRow(label, count, maxA)).join('')}
+      ${topArtists.map(([l, c]) => row(l, c, maxA)).join('')}
     </div>
     <div class="stats-section">
       <h3>Top Genres</h3>
-      ${topGenres.map(([label, count]) => statsRow(label, count, maxG)).join('')}
+      ${topGenres.map(([l, c]) => row(l, c, maxG)).join('')}
     </div>
     <div class="stats-section">
       <h3>Most Popular Years</h3>
-      ${topYears.map(([label, count]) => statsRow(label, count, maxY)).join('')}
+      ${topYears.map(([l, c]) => row(l, c, maxY)).join('')}
     </div>
     <div class="stats-section">
       <h3>Recently Added</h3>
       <ul class="coming-up-list">
-        ${comingUp.map(a => `
+        ${recentlyAdded.map(a => `
           <li class="coming-up-item">
             <span class="coming-up-date">${new Date(a.dateAdded).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
             <span class="coming-up-title">${escHtml(a.artist)} — ${escHtml(a.title)}</span>
             ${a.year ? `<span class="coming-up-year">(${a.year})</span>` : ''}
-          </li>
-        `).join('')}
+          </li>`).join('')}
       </ul>
     </div>`;
 
@@ -523,10 +567,9 @@ function renderInlineStats() {
 
 // ── Random ────────────────────────────────────────────
 function openRandom() {
-  if (!state.visibleAlbums.length && !state.albums.length) return;
   const pool = state.visibleAlbums.length ? state.visibleAlbums : state.albums;
-  const idx = Math.floor(Math.random() * pool.length);
-  openModal(idx);
+  if (!pool.length) return;
+  openModal(Math.floor(Math.random() * pool.length));
 }
 
 // ── Utils ─────────────────────────────────────────────
