@@ -28,6 +28,7 @@ const els = {
   searchInput: $('search-input'),
   statsSection: $('stats-section'),
   statsContent: $('stats-content'),
+  statsBtn: $('stats-btn'),
   loadingState: $('loading-state'),
   errorState: $('error-state'),
   errorMsg: $('error-msg'),
@@ -64,6 +65,13 @@ function init() {
   els.modalPrev.addEventListener('click', () => navigateModal(-1));
   els.modalNext.addEventListener('click', () => navigateModal(1));
   els.randomBtn.addEventListener('click', openRandom);
+  els.statsBtn.addEventListener('click', () => {
+    const section = els.statsSection;
+    if (section.hidden) return; // not loaded yet
+    const navH = els.sortNav.offsetHeight;
+    const top = section.getBoundingClientRect().top + window.scrollY - navH - 16;
+    window.scrollTo({ top, behavior: 'smooth' });
+  });
   els.searchInput.addEventListener('input', () => renderSearch(els.searchInput.value));
 
   document.addEventListener('keydown', e => {
@@ -196,7 +204,7 @@ async function fetchPrices() {
     await Promise.all(batch.map(async album => {
       try {
         const res = await fetch(
-          `${DISCOGS_API}/marketplace/stats/${album.releaseId}?curr_abbr=USD`,
+          `${DISCOGS_API}/marketplace/stats/${album.releaseId}?curr_abbr=EUR`,
           { headers: HEADERS }
         );
         if (res.ok) {
@@ -289,7 +297,7 @@ function buildYearFilters() {
 }
 
 function buildPriceFilters() {
-  const order = ['$100+', '$50–99', '$25–49', '$10–24', 'Under $10', '—'];
+  const order = ['€100+', '€50–99', '€25–49', '€10–24', 'Under €10', '—'];
   const existing = new Set(state.albums.map(getPriceBucket));
   els.sortFilters.innerHTML = order
     .filter(b => existing.has(b))
@@ -362,15 +370,15 @@ function renderYear() {
 function getPriceBucket(a) {
   const p = a.median;
   if (p === null || p === undefined) return '—';
-  if (p >= 100) return '$100+';
-  if (p >= 50)  return '$50–99';
-  if (p >= 25)  return '$25–49';
-  if (p >= 10)  return '$10–24';
-  return 'Under $10';
+  if (p >= 100) return '€100+';
+  if (p >= 50)  return '€50–99';
+  if (p >= 25)  return '€25–49';
+  if (p >= 10)  return '€10–24';
+  return 'Under €10';
 }
 
 function renderPrice() {
-  const order = ['$100+', '$50–99', '$25–49', '$10–24', 'Under $10', '—'];
+  const order = ['€100+', '€50–99', '€25–49', '€10–24', 'Under €10', '—'];
   const groups = {};
   state.albums.forEach(a => {
     const b = getPriceBucket(a);
@@ -411,11 +419,13 @@ function renderSearch(query) {
 }
 
 function renderGroups(groups) {
+  // Build a global index map so each card gets its correct position in state.visibleAlbums
+  let globalIdx = 0;
   els.collectionOutput.innerHTML = groups.map(({ label, albums }) => `
     <div class="section-group" data-section="${escAttr(label)}">
       <div class="section-heading">${escHtml(label)}</div>
       <div class="album-grid">
-        ${albums.map((a, i) => albumCard(a, i)).join('')}
+        ${albums.map(a => albumCard(a, globalIdx++)).join('')}
       </div>
     </div>
   `).join('');
@@ -473,7 +483,7 @@ function openModal(idx) {
   if (album.priceLoading) {
     priceDisplay = `<span style="color:var(--text-dim)">Loading…</span>`;
   } else if (album.median !== null && album.median !== undefined) {
-    priceDisplay = `$${album.median.toFixed(2)}`;
+    priceDisplay = `€${album.median.toFixed(2)}`;
   } else {
     priceDisplay = `<span style="color:var(--text-dim)">—</span>`;
   }
